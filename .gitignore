@@ -1,0 +1,29 @@
+# Ignore build directories
+/build/
+/bin/
+/obj/
+/out/
+
+# Ignore C++ specific files
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# Ignore generated files
+*.gch
+*.pch
+*.log
+
+# Ignore IDE specific files
+.vscode/
+.idea/
+*.code-workspace
+
+# Ignore OS specific files
+.DS_Store
+Thumbs.db
