@@ -4,57 +4,95 @@
 #include "tetris_math.h"
 #include "tetris_world.h"
 
-#define PLAYER_DIM 5
+#define PLAYER_DATA_GRID_MAX_SIZE 16
+#define PLAYER_DATA_KIND_COUNT 7
+#define PLAYER_VALUE_COUNT 3
 
-static constexpr uint8 kPlayerKind0[PLAYER_DIM][PLAYER_DIM] = {
-    {0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0},
-    {1, 1, 1, 1, 0},
-    {0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0}};
-
-static constexpr uint8 kPlayerKind1[PLAYER_DIM][PLAYER_DIM] = {
-    {0, 0, 0, 0, 0},
-    {0, 1, 1, 0, 0},
-    {0, 1, 1, 0, 0},
-    {0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0}};
-
-static constexpr uint8 kPlayerKind2[PLAYER_DIM][PLAYER_DIM] = {
-    {0, 0, 0, 0, 0},
-    {0, 1, 0, 0, 0},
-    {0, 1, 0, 0, 0},
-    {0, 1, 1, 0, 0},
-    {0, 0, 0, 0, 0}};
-
-static constexpr uint8 kPlayerKind3[PLAYER_DIM][PLAYER_DIM] = {
-    {0, 0, 0, 0, 0},
-    {0, 1, 0, 0, 0},
-    {0, 1, 1, 0, 0},
-    {0, 0, 1, 0, 0},
-    {0, 0, 0, 0, 0}};
-
-static constexpr uint8 kPlayerKind4[PLAYER_DIM][PLAYER_DIM] = {
-    {0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0},
-    {0, 1, 1, 1, 0},
-    {0, 0, 1, 0, 0},
-    {0, 0, 0, 0, 0}};
+struct player_data_t
+{
+    vec2i_t dim;
+    uint8 *grid;
+};
 
 struct player_t
 {
     vec2i_t position;
-    uint8 *data;
+    player_data_t data;
     uint8 value;
+    uint8 nextPlayerKindId;
+    uint8 nextPlayerValue;
 };
 
-bool IsPlayerPositionValid(world_t *world, uint8 *playerData, vec2i_t testPosition)
+static constexpr uint8 kPlayerKind0[4][4] = {
+    {0, 0, 0, 0},
+    {0, 0, 0, 0},
+    {0, 0, 0, 0},
+    {1, 1, 1, 1}};
+
+static constexpr uint8 kPlayerKind1[2][2] = {
+    {1, 1},
+    {1, 1}};
+
+static constexpr uint8 kPlayerKind2[3][3] = {
+    {1, 0, 0},
+    {1, 0, 0},
+    {1, 1, 0}};
+
+static constexpr uint8 kPlayerKind3[3][3] = {
+    {1, 0, 0},
+    {1, 1, 0},
+    {0, 1, 0}};
+
+static constexpr uint8 kPlayerKind4[3][3] = {
+    {0, 0, 0},
+    {1, 1, 1},
+    {0, 1, 0}};
+
+static constexpr uint8 kPlayerKind5[3][3] = {
+    {0, 0, 1},
+    {0, 0, 1},
+    {0, 1, 1}};
+
+static constexpr uint8 kPlayerKind6[3][3] = {
+    {0, 0, 1},
+    {0, 1, 1},
+    {0, 1, 0}};
+
+static player_data_t kPlayerData0 = {
+    {4, 4},
+    (uint8 *)kPlayerKind0};
+
+static player_data_t kPlayerData1 = {
+    {2, 2},
+    (uint8 *)kPlayerKind1};
+
+static player_data_t kPlayerData2 = {
+    {3, 3},
+    (uint8 *)kPlayerKind2};
+
+static player_data_t kPlayerData3 = {
+    {3, 3},
+    (uint8 *)kPlayerKind3};
+
+static player_data_t kPlayerData4 = {
+    {3, 3},
+    (uint8 *)kPlayerKind4};
+
+static player_data_t kPlayerData5 = {
+    {3, 3},
+    (uint8 *)kPlayerKind5};
+
+static player_data_t kPlayerData6 = {
+    {3, 3},
+    (uint8 *)kPlayerKind6};
+
+bool IsPlayerPositionValid(world_t *world, player_data_t *playerData, vec2i_t testPosition)
 {
-    for (uint8 y = 0; y < PLAYER_DIM; ++y)
+    for (uint8 y = 0; y < playerData->dim.y; ++y)
     {
-        for (uint8 x = 0; x < PLAYER_DIM; ++x)
+        for (uint8 x = 0; x < playerData->dim.x; ++x)
         {
-            if (playerData[y * PLAYER_DIM + x])
+            if (playerData->grid[y * playerData->dim.x + x])
             {
                 vec2i_t position = testPosition + vec2i_t{x, y};
 
@@ -74,11 +112,11 @@ void SavePlayerInWorld(world_t *world, player_t *player)
 {
     if (player->value)
     {
-        for (uint8 y = 0; y < PLAYER_DIM; ++y)
+        for (uint8 y = 0; y < player->data.dim.y; ++y)
         {
-            for (uint8 x = 0; x < PLAYER_DIM; ++x)
+            for (uint8 x = 0; x < player->data.dim.x; ++x)
             {
-                if (player->data[y * PLAYER_DIM + x])
+                if (player->data.grid[y * player->data.dim.x + x])
                 {
                     vec2i_t position = player->position + vec2i_t{x, y};
                     SetWorldValue(world, position, player->value);
@@ -90,60 +128,71 @@ void SavePlayerInWorld(world_t *world, player_t *player)
 
 void RotatePlayer(world_t *world, player_t *player)
 {
-    uint8 newData[PLAYER_DIM][PLAYER_DIM];
+    uint8 newData[PLAYER_DATA_GRID_MAX_SIZE][PLAYER_DATA_GRID_MAX_SIZE];
+    SDL_assert(player->data.dim.x == player->data.dim.y);
+    SDL_assert(player->data.dim.x <= PLAYER_DATA_GRID_MAX_SIZE);
+    SDL_assert(player->data.dim.y <= PLAYER_DATA_GRID_MAX_SIZE);
 
-    for (int i = 0; i < PLAYER_DIM; ++i)
+    uint8 sqDim = player->data.dim.x;
+
+    for (int i = 0; i < sqDim; ++i)
     {
-        for (int j = 0; j < PLAYER_DIM; ++j)
+        for (int j = 0; j < sqDim; ++j)
         {
-            newData[j][PLAYER_DIM - i - 1] = player->data[i * PLAYER_DIM + j];
+            newData[j][sqDim - i - 1] = player->data.grid[i * sqDim + j];
         }
     }
 
-    if (IsPlayerPositionValid(world, (uint8 *)newData, player->position))
+    player_data_t newPlayerData{
+        player->data.dim,
+        (uint8 *)newData};
+
+    if (IsPlayerPositionValid(world, &newPlayerData, player->position))
     {
-        for (int y = 0; y < PLAYER_DIM; ++y)
+        for (int y = 0; y < player->data.dim.y; ++y)
         {
-            for (int x = 0; x < PLAYER_DIM; ++x)
+            for (int x = 0; x < player->data.dim.x; ++x)
             {
-                player->data[y * PLAYER_DIM + x] = newData[y][x];
+                player->data.grid[y * player->data.dim.x + x] = newData[y][x];
             }
         }
     }
 }
 
-void SpawnPlayer(world_t *world, player_t *player)
+player_data_t GetPlayerKind(uint8 playerKindId)
 {
-    player->position = {world->size.x / 2, -PLAYER_DIM};
-    player->value = SDL_rand(3) + 1;
-
-    uint8 *allPlayerData[8] = {
-        (uint8 *)kPlayerKind0,
-        (uint8 *)kPlayerKind1,
-        (uint8 *)kPlayerKind2,
-        (uint8 *)kPlayerKind3,
-        (uint8 *)kPlayerKind4,
+    player_data_t allPlayerData[8] = {
+        kPlayerData0,
+        kPlayerData1,
+        kPlayerData2,
+        kPlayerData3,
+        kPlayerData4,
+        kPlayerData5,
+        kPlayerData6,
     };
 
-    uint8 playerKind = SDL_rand(5);
+    return allPlayerData[playerKindId];
+}
 
-    uint8 *playerData = allPlayerData[playerKind];
+void SpawnPlayer(world_t *world, player_t *player)
+{
+    player->value = player->nextPlayerValue;
+    uint8 playerKindId = player->nextPlayerKindId;
+    player->nextPlayerKindId = SDL_rand(PLAYER_DATA_KIND_COUNT);
+    player->nextPlayerValue = SDL_rand(PLAYER_VALUE_COUNT) + 1;
 
-    if (playerData)
+    player_data_t newPlayerData = GetPlayerKind(playerKindId);
+    player->data.dim = newPlayerData.dim;
+
+    for (int y = 0; y < newPlayerData.dim.y; ++y)
     {
-        for (int y = 0; y < PLAYER_DIM; ++y)
+        for (int x = 0; x < newPlayerData.dim.x; ++x)
         {
-            for (int x = 0; x < PLAYER_DIM; ++x)
-            {
-                player->data[y * PLAYER_DIM + x] = playerData[y * PLAYER_DIM + x];
-            }
+            player->data.grid[y * newPlayerData.dim.x + x] = newPlayerData.grid[y * newPlayerData.dim.x + x];
         }
     }
-    else
-    {
-        SDL_Log("Invalid player kind: %d", playerKind);
-        SDL_assert(false);
-    }
+
+    player->position = {(world->size.x - player->data.dim.x) / 2, -player->data.dim.y};
 }
 
 #define TETRIS_PLAYER_H

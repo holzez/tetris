@@ -8,10 +8,12 @@
 #include "tetris_player.h"
 
 #define SCORE_PER_ROW 100
+#define MIN_STEP_MS 50
+#define MAX_STEP_MS 500
+#define DELTA_STEP_MS 25
 
 static constexpr uint64 kWidth = 1920;
 static constexpr uint64 kHeight = 1080;
-static constexpr uint64 kStepMs = 250;
 static constexpr uint64 inputMs = 100;
 
 static uint64 fpsTimer{0};
@@ -26,10 +28,20 @@ struct game_input_button_t
 
 struct game_input_t
 {
-    game_input_button_t left;
-    game_input_button_t right;
-    game_input_button_t down;
-    game_input_button_t rotate;
+    SDL_JoystickID gamepadId;
+
+    union
+    {
+        struct
+        {
+            game_input_button_t left;
+            game_input_button_t right;
+            game_input_button_t down;
+            game_input_button_t rotate;
+        };
+
+        game_input_button_t buttons[4];
+    };
 };
 
 struct app_state_t
@@ -42,6 +54,7 @@ struct app_state_t
     bool paused;
     bool gameOver;
     uint32 score;
+    uint64 stepMs;
 };
 
 inline color_t GetValueColor(uint8 value)
@@ -122,51 +135,13 @@ static void FlushInput(game_input_t *input)
     input->rotate.transitionCount = 0;
 }
 
-static void HandleKeyboardEvent(game_input_t *input, SDL_Scancode scancode, bool isDown)
-{
-    switch (scancode)
-    {
-    case SDL_SCANCODE_LEFT:
-        SetInputButtonDown(&input->left, isDown);
-        break;
-    case SDL_SCANCODE_RIGHT:
-        SetInputButtonDown(&input->right, isDown);
-        break;
-    case SDL_SCANCODE_DOWN:
-        SetInputButtonDown(&input->down, isDown);
-        break;
-    case SDL_SCANCODE_SPACE:
-        SetInputButtonDown(&input->rotate, isDown);
-        break;
-    }
-}
-
-static void HandleGamepadButtonEvent(game_input_t *input, uint8 button, bool isDown)
-{
-    switch (button)
-    {
-    case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
-        SetInputButtonDown(&input->left, isDown);
-        break;
-    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:
-        SetInputButtonDown(&input->right, isDown);
-        break;
-    case SDL_GAMEPAD_BUTTON_DPAD_DOWN:
-        SetInputButtonDown(&input->down, isDown);
-        break;
-    case SDL_GAMEPAD_BUTTON_SOUTH:
-        SetInputButtonDown(&input->rotate, isDown);
-        break;
-    }
-}
-
 static void MovePlayer(world_t *world, player_t *player, game_input_t *input)
 {
     vec2i_t newPosition = player->position;
     newPosition.x -= GetInputButtonDownCount(&input->left);
     newPosition.x += GetInputButtonDownCount(&input->right);
 
-    if (IsPlayerPositionValid(world, player->data, newPosition))
+    if (IsPlayerPositionValid(world, &player->data, newPosition))
     {
         player->position = newPosition;
     }
@@ -187,7 +162,7 @@ static bool CheckGameOver(world_t *world, player_t *player)
         }
     }
 
-    if (!IsPlayerPositionValid(world, player->data, player->position))
+    if (!IsPlayerPositionValid(world, &player->data, player->position))
     {
         return false;
     }
@@ -225,14 +200,122 @@ static uint8 DestroyFilledRows(world_t *world)
     return destroyedRows;
 }
 
-static void Restart(app_state_t *appState)
+static void ResetAppState(app_state_t *appState)
 {
     appState->paused = false;
     appState->gameOver = false;
     appState->score = 0;
+    appState->stepMs = MAX_STEP_MS;
+}
 
+static void Restart(app_state_t *appState)
+{
+    ResetAppState(appState);
     ResetWorld(&appState->world);
     SpawnPlayer(&appState->world, &appState->player);
+
+    if (appState->input.gamepadId)
+    {
+        SDL_Gamepad *gamepad = SDL_GetGamepadFromID(appState->input.gamepadId);
+
+        if (gamepad)
+        {
+            SDL_SetGamepadLED(gamepad, 0x00, 0x00, 0xFF);
+        }
+    }
+}
+
+static void HandleKeyboardEvent(app_state_t *appState, SDL_Scancode scancode, bool isDown)
+{
+    game_input_t *input = &appState->input;
+    input->gamepadId = 0;
+
+    if (isDown)
+    {
+        switch (scancode)
+        {
+        case SDL_SCANCODE_R:
+            Restart(appState);
+            break;
+        case SDL_SCANCODE_ESCAPE:
+        case SDL_SCANCODE_P:
+            if (!appState->gameOver)
+            {
+                appState->paused = !appState->paused;
+            }
+            break;
+        }
+    }
+
+    if (!appState->paused && !appState->gameOver)
+    {
+        switch (scancode)
+        {
+        case SDL_SCANCODE_LEFT:
+            SetInputButtonDown(&input->left, isDown);
+            break;
+        case SDL_SCANCODE_RIGHT:
+            SetInputButtonDown(&input->right, isDown);
+            break;
+        case SDL_SCANCODE_DOWN:
+            SetInputButtonDown(&input->down, isDown);
+            break;
+        case SDL_SCANCODE_SPACE:
+            SetInputButtonDown(&input->rotate, isDown);
+            break;
+        }
+    }
+}
+
+static void HandleGamepadButtonEvent(app_state_t *appState, uint8 button, SDL_JoystickID gamepadId, bool isDown)
+{
+    game_input_t *input = &appState->input;
+    input->gamepadId = gamepadId;
+
+    if (isDown)
+    {
+        switch (button)
+        {
+        case SDL_GAMEPAD_BUTTON_START:
+            if (!appState->gameOver)
+            {
+                appState->paused = !appState->paused;
+            }
+            else
+            {
+                Restart(appState);
+            }
+            break;
+        case SDL_GAMEPAD_BUTTON_BACK:
+            Restart(appState);
+            break;
+        }
+    }
+
+    if (!appState->paused && !appState->gameOver)
+    {
+        switch (button)
+        {
+        case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
+        case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER:
+        case SDL_GAMEPAD_BUTTON_LEFT_PADDLE1:
+        case SDL_GAMEPAD_BUTTON_LEFT_PADDLE2:
+            SetInputButtonDown(&input->left, isDown);
+            break;
+        case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:
+        case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER:
+        case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1:
+        case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2:
+            SetInputButtonDown(&input->right, isDown);
+            break;
+        case SDL_GAMEPAD_BUTTON_DPAD_DOWN:
+            SetInputButtonDown(&input->down, isDown);
+            break;
+        case SDL_GAMEPAD_BUTTON_SOUTH:
+            SetInputButtonDown(&input->rotate, isDown);
+            break;
+        }
+    }
 }
 
 /* This function runs once at startup. */
@@ -268,7 +351,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
         return SDL_APP_FAILURE;
     }
 
-    if (!SDL_SetRenderVSync(as->renderer, true))
+    if (!SDL_SetRenderVSync(as->renderer, false))
     {
         SDL_Log("Set vsync error: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -276,9 +359,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 
     SDL_srand(1);
 
-    as->paused = false;
-    as->gameOver = false;
-    as->score = 0;
+    ResetAppState(as);
     as->world.size = {16, 24};
     as->world.data = (uint8 *)SDL_calloc(as->world.size.x * as->world.size.y, sizeof(uint8));
 
@@ -288,9 +369,11 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
         return SDL_APP_FAILURE;
     }
 
-    as->player.data = (uint8 *)SDL_calloc(PLAYER_DIM * PLAYER_DIM, sizeof(uint8));
+    as->player.nextPlayerKindId = SDL_rand(PLAYER_DATA_KIND_COUNT);
+    as->player.nextPlayerValue = SDL_rand(PLAYER_VALUE_COUNT) + 1;
+    as->player.data.grid = (uint8 *)SDL_calloc(PLAYER_DATA_GRID_MAX_SIZE * PLAYER_DATA_GRID_MAX_SIZE, sizeof(uint8));
 
-    if (!as->player.data)
+    if (!as->player.data.grid)
     {
         SDL_Log("Couldn't allocate memory for player data: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -320,35 +403,24 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
         switch (event->key.scancode)
         {
         case SDL_SCANCODE_Q:
-        case SDL_SCANCODE_ESCAPE:
             return SDL_APP_SUCCESS;
-        case SDL_SCANCODE_R:
-            Restart(as);
-            break;
-        case SDL_SCANCODE_P:
-            if (!as->gameOver)
-            {
-                as->paused = !as->paused;
-            }
-            break;
         default:
-            if (!as->paused && !as->gameOver)
-            {
-                HandleKeyboardEvent(&as->input, event->key.scancode, true);
-            }
+            HandleKeyboardEvent(as, event->key.scancode, true);
             break;
         }
         break;
     case SDL_EVENT_KEY_UP:
-        if (!as->paused && !as->gameOver)
-        {
-            HandleKeyboardEvent(&as->input, event->key.scancode, false);
-        }
+        HandleKeyboardEvent(as, event->key.scancode, false);
         break;
     case SDL_EVENT_GAMEPAD_ADDED:
     {
         const SDL_JoystickID gamepadId = event->gdevice.which;
         SDL_Gamepad *gamepad = SDL_OpenGamepad(gamepadId);
+
+        if (gamepad)
+        {
+            SDL_SetGamepadLED(gamepad, 0x00, 0x00, 0xFF);
+        }
         break;
     }
     case SDL_EVENT_GAMEPAD_REMOVED:
@@ -364,16 +436,10 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
         break;
     }
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
-        if (!as->paused && !as->gameOver)
-        {
-            HandleGamepadButtonEvent(&as->input, event->gbutton.button, true);
-        }
+        HandleGamepadButtonEvent(as, event->gbutton.button, event->gdevice.which, true);
         break;
     case SDL_EVENT_GAMEPAD_BUTTON_UP:
-        if (!as->paused && !as->gameOver)
-        {
-            HandleGamepadButtonEvent(&as->input, event->gbutton.button, false);
-        }
+        HandleGamepadButtonEvent(as, event->gbutton.button, event->gdevice.which, false);
         break;
     }
 
@@ -413,11 +479,29 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     // UPDATE WORLD
     {
         uint64 now = SDL_GetTicks();
-        uint64 stepMs = kStepMs;
+        uint64 stepMs = as->input.down.isDown ? MIN_STEP_MS : as->stepMs;
 
-        if (as->input.down.isDown)
+        for (int i = 0; i < 4; ++i)
         {
-            stepMs /= 4;
+            game_input_button_t *button = &as->input.buttons[i];
+            SDL_FRect rect{
+                textPaddingX + i * (textPaddingX + 20.0f),
+                textPaddingY * 4 + SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE,
+                20.0f,
+                20.0f,
+            };
+
+            // DEBUG BUTTONS
+            if (WasInputButtonPressedOnce(button) || button->isDown)
+            {
+                SDL_SetRenderDrawColor(as->renderer, 0x00, 0xFF, 0x00, 0xFF);
+            }
+            else
+            {
+                SDL_SetRenderDrawColor(as->renderer, 0xFF, 0x00, 0x00, 0xFF);
+            }
+
+            SDL_RenderFillRect(as->renderer, &rect);
         }
 
         if (now - inputTimer >= inputMs)
@@ -437,7 +521,7 @@ SDL_AppResult SDL_AppIterate(void *appstate)
             {
                 vec2i_t newPosition = player->position + vec2i_t{0, 1};
 
-                if (IsPlayerPositionValid(world, player->data, newPosition))
+                if (IsPlayerPositionValid(world, &player->data, newPosition))
                 {
                     player->position = newPosition;
                 }
@@ -448,9 +532,36 @@ SDL_AppResult SDL_AppIterate(void *appstate)
                     as->score += destroyedRows * SCORE_PER_ROW;
                     SpawnPlayer(world, player);
 
+                    if (as->input.gamepadId)
+                    {
+                        SDL_Gamepad *gamepad = SDL_GetGamepadFromID(as->input.gamepadId);
+
+                        if (gamepad)
+                        {
+                            uint16 strength = destroyedRows ? 0xFFFF : 0x1000;
+                            SDL_RumbleGamepad(gamepad, strength, strength, 500);
+                        }
+                    }
+
+                    if (destroyedRows)
+                    {
+                        as->stepMs = SDL_max(MIN_STEP_MS, as->stepMs - DELTA_STEP_MS);
+                    }
+
                     if (CheckGameOver(world, player))
                     {
                         as->gameOver = true;
+
+                        if (as->input.gamepadId)
+                        {
+                            SDL_Gamepad *gamepad = SDL_GetGamepadFromID(as->input.gamepadId);
+
+                            if (gamepad)
+                            {
+                                SDL_RumbleGamepad(gamepad, 0xFFFF, 0xFFFF, 1000);
+                                SDL_SetGamepadLED(gamepad, 0xFF, 0x00, 0x00);
+                            }
+                        }
                     }
                 }
             }
@@ -496,11 +607,11 @@ SDL_AppResult SDL_AppIterate(void *appstate)
             real32 playerStartX = offset.x + player->position.x * itemSize.w;
             real32 playerStartY = offset.y + player->position.y * itemSize.h;
 
-            for (uint8 y = 0; y < PLAYER_DIM; ++y)
+            for (uint8 y = 0; y < player->data.dim.y; ++y)
             {
-                for (uint8 x = 0; x < PLAYER_DIM; ++x)
+                for (uint8 x = 0; x < player->data.dim.x; ++x)
                 {
-                    uint8 hasValue = player->data[y * PLAYER_DIM + x];
+                    uint8 hasValue = player->data.grid[y * player->data.dim.x + x];
 
                     if (hasValue && player->position.y + y >= 0)
                     {
@@ -516,6 +627,54 @@ SDL_AppResult SDL_AppIterate(void *appstate)
                         SDL_RenderRect(as->renderer, &rect);
                     }
                 }
+            }
+        }
+
+        {
+            player_data_t nextPlayerKind = GetPlayerKind(player->nextPlayerKindId);
+
+            if (nextPlayerKind.grid)
+            {
+                vec2_t nextPlayerSize{
+                    itemSize.w * nextPlayerKind.dim.x,
+                    itemSize.h * nextPlayerKind.dim.y};
+                vec2_t nextPlayerOffset{
+                    (real32)renderSize.w - offset.x + (offset.x - nextPlayerSize.w) / 2.0f,
+                    ((real32)renderSize.h - nextPlayerSize.h) / 2.0f,
+                };
+
+                for (int y = 0; y < nextPlayerKind.dim.y; ++y)
+                {
+                    for (int x = 0; x < nextPlayerKind.dim.x; ++x)
+                    {
+                        uint8 hasValue = nextPlayerKind.grid[y * nextPlayerKind.dim.x + x];
+
+                        if (hasValue)
+                        {
+                            color_t color = GetValueColor(player->nextPlayerValue);
+                            SDL_FRect rect{
+                                nextPlayerOffset.x + x * itemSize.w,
+                                nextPlayerOffset.y + y * itemSize.h,
+                                itemSize.w,
+                                itemSize.h};
+
+                            SDL_SetRenderDrawColor(as->renderer, color.r, color.g, color.b, 0xFF);
+                            SDL_RenderFillRect(as->renderer, &rect);
+                            SDL_SetRenderDrawColor(as->renderer, 0xAA, 0xAA, 0xAA, 0x33);
+                            SDL_RenderRect(as->renderer, &rect);
+                        }
+                    }
+                }
+
+                SDL_FRect nextPlayerRect{
+                    nextPlayerOffset.x,
+                    nextPlayerOffset.y,
+                    nextPlayerSize.w,
+                    nextPlayerSize.h,
+                };
+
+                SDL_SetRenderDrawColor(as->renderer, 0xAA, 0xAA, 0xAA, 0xFF);
+                SDL_RenderRect(as->renderer, &nextPlayerRect);
             }
         }
 
@@ -566,12 +725,14 @@ SDL_AppResult SDL_AppIterate(void *appstate)
         SDL_SetRenderScale(as->renderer, 1.0f, 1.0f);
     }
 
+#if 0
     {
         SDL_SetRenderScale(as->renderer, 2.0f, 2.0f);
         SDL_SetRenderDrawColor(as->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
         SDL_RenderDebugText(as->renderer, textPaddingX, textPaddingY, fpsString);
         SDL_SetRenderScale(as->renderer, 1.0f, 1.0f);
     }
+#endif
 
     SDL_RenderPresent(as->renderer);
 
