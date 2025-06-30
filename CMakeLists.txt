@@ -28,6 +28,16 @@ set(SDLIMAGE_XCF OFF)
 set(SDLIMAGE_XPM OFF)
 set(SDLIMAGE_XV OFF)
 
+# Set SDL_mixer options
+set(SDLMIXER_FLAC OFF)
+set(SDLMIXER_GME OFF)
+set(SDLMIXER_MOD OFF)
+set(SDLMIXER_MP3 ON)
+set(SDLMIXER_MIDI OFF)
+set(SDLMIXER_OPUS OFF)
+set(SDLMIXER_WAVE OFF)
+set(SDLMIXER_WAVPACK OFF)
+
 # This assumes the SDL source is available in vendored/SDL
 add_subdirectory(vendored/SDL EXCLUDE_FROM_ALL)
 
@@ -49,7 +59,7 @@ endif()
 
 add_executable(tetris src/main.cpp)
 
-target_link_libraries(tetris PRIVATE SDL3_image::SDL3_image SDL3::SDL3) # SDL3_ttf::SDL3_ttf SDL3_mixer::SDL3_mixer
+target_link_libraries(tetris PRIVATE SDL3_image::SDL3_image SDL3_mixer::SDL3_mixer SDL3::SDL3) # SDL3_ttf::SDL3_ttf
 
 # This is safe to set on all platforms. Otherwise your SDL app will
 #  have a terminal window pop up with it on Windows.

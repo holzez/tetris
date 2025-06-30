@@ -2,9 +2,12 @@
 
 #include "tetris_typedefs.h"
 #include "tetris_math.h"
+#include "tetris_assets.h"
 
 struct world_t
 {
+    vec2_t itemRenderSize;
+
     vec2i_t size;
     /**
      * @brief The world data.
@@ -14,89 +17,34 @@ struct world_t
     uint8 *data;
 };
 
+bool InitWorld(world_t *world);
+
 /**
  * @note Negative Y valid and always empty.
  */
-inline bool IsWorldPositionValid(world_t *world, vec2i_t position)
-{
-    return position.x >= 0 && position.x < world->size.x &&
-           position.y < world->size.y;
-}
+bool IsWorldPositionValid(world_t *world, vec2i_t position);
 
 /**
  * @note If position invalid, return 0.
  */
-inline uint8 GetWorldValue(world_t *world, vec2i_t position)
-{
-    if (position.y < 0)
-    {
-        return 0;
-    }
+uint8 GetWorldValue(world_t *world, vec2i_t position);
 
-    if (IsWorldPositionValid(world, position))
-    {
-        return world->data[position.y * world->size.x + position.x];
-    }
-    else
-    {
-        return 0;
-    }
-}
+uint8 GetWorldValueUnchecked(world_t *world, vec2i_t position);
 
-inline uint8 GetWorldValueUnchecked(world_t *world, vec2i_t position)
-{
-    if (position.y < 0)
-    {
-        return 0;
-    }
+void SetWorldValueUnchecked(world_t *world, vec2i_t position, uint8 value);
 
-    return world->data[position.y * world->size.x + position.x];
-}
+void SetWorldValue(world_t *world, vec2i_t position, uint8 value);
 
-inline void SetWorldValueUnchecked(world_t *world, vec2i_t position, uint8 value)
-{
-    if (position.y >= 0)
-    {
-        world->data[position.y * world->size.x + position.x] = value;
-    }
-}
+bool IsValueEmpty(uint8 value);
 
-inline void SetWorldValue(world_t *world, vec2i_t position, uint8 value)
-{
-    if (IsWorldPositionValid(world, position))
-    {
-        SetWorldValueUnchecked(world, position, value);
-    }
-}
+bool IsWorldRowFilled(world_t *world, uint8 row);
 
-inline bool IsValueEmpty(uint8 value)
-{
-    return value == 0;
-}
+void ResetWorld(world_t *world);
 
-bool IsWorldRowFilled(world_t *world, uint8 row)
-{
-    for (int x = 0; x < world->size.x; ++x)
-    {
-        if (IsValueEmpty(GetWorldValue(world, {x, row})))
-        {
-            return false;
-        }
-    }
+void RenderWorldItem(SDL_Renderer *renderer, app_assets_t *assets, world_t *world,
+                     uint8 value, vec2i_t position, vec2_t offset);
 
-    return true;
-}
-
-void ResetWorld(world_t *world)
-{
-    for (int y = 0; y < world->size.y; ++y)
-    {
-        for (int x = 0; x < world->size.x; ++x)
-        {
-            SetWorldValueUnchecked(world, {x, y}, 0);
-        }
-    }
-}
+void RenderWorld(SDL_Renderer *renderer, app_assets_t *assets, world_t *world, vec2_t offset);
 
 #define TETRIS_WORLD_H
 #endif

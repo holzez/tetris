@@ -116,10 +116,20 @@ struct vec2_t
 
     vec2_t operator*(int32 scalar) const
     {
+        return {x * (real32)scalar, y * (real32)scalar};
+    }
+
+    vec2_t operator*(real32 scalar) const
+    {
         return {x * scalar, y * scalar};
     }
 
     vec2_t operator/(int32 scalar) const
+    {
+        return {x / (real32)scalar, y / (real32)scalar};
+    }
+
+    vec2_t operator/(real32 scalar) const
     {
         return {x / scalar, y / scalar};
     }
@@ -176,13 +186,6 @@ struct vec2_t
     {
         return (&x)[index];
     }
-};
-
-struct color_t
-{
-    uint8 r;
-    uint8 g;
-    uint8 b;
 };
 
 #define TETRIS_MATH_H
